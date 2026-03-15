@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Night Mode | Truth or Dare - Multiplayer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background-color: #050505;
+            color: #e0e0e0;
+            overflow-x: hidden;
+        }
+
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #111; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+            100% { transform: translateY(0px); }
+        }
+        .animate-float { animation: float 6s ease-in-out infinite; }
+
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 20px rgba(139, 92, 246, 0.1); }
+            50% { box-shadow: 0 0 40px rgba(139, 92, 246, 0.3); }
+        }
+        .glow-effect { animation: pulse-glow 3s infinite; }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .slide-in { animation: slideIn 0.5s ease-out forwards; }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+            20%, 40%, 60%, 80% { transform: translateX(5px); }
+        }
+        .shake { animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both; }
+
+        .glass-panel {
+            background: rgba(20, 20, 20, 0.6);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .card-hover:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px -10px rgba(139, 92, 246, 0.3);
+            border-color: rgba(139, 92, 246, 0.4);
+        }
+
+        .hidden-panel { display: none; }
+        
+        .gradient-text {
+            background: linear-gradient(to right, #c084fc, #6366f1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        textarea:focus, input:focus {
+            outline: none;
+            border-color: #8b5cf6;
+            box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.2);
+        }
+
+        #secret-trigger {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 40px;
+            height: 40px;
+            opacity: 0;
+            cursor: pointer;
+            z-index: 9999;
+        }
+
+        .connection-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .status-connecting { background: rgba(234, 179, 8, 0.2); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3); }
+        .status-connected { background: rgba(34, 197, 94, 0.2); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.3); }
+        .status-host { background: rgba(139, 92, 246, 0.2); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.3); }
+        .status-error { background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
+
+        .player-card {
+            transition: all 0.3s ease;
+        }
+        .player-card.active {
+            border-color: #8b5cf6;
+            background: rgba(139, 92, 246, 0.1);
+            box-shadow: 0 0 20px rgba(139, 92, 246, 0.2);
+        }
+        .player-card.connected {
+            border-left-color: #22c55e;
+        }
+        .player-card.disconnected {
+            opacity: 0.5;
+            border-left-color: #ef4444;
+        }
+
+        .peer-id-display {
+            font-family: 'Courier New', monospace;
+            letter-spacing: 2px;
+            background: linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%);
+            border: 1px dashed rgba(139, 92, 246, 0.4);
+        }
+
+        .typing-indicator::after {
+            content: '...';
+            animation: typing 1.5s infinite;
+        }
+        @keyframes typing {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col relative selection:bg-purple-500 selection:text-white">
+
+    <!-- Background -->
+    <div class="fixed inset-0 z-0 pointer-events-none">
+        <div class="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-purple-900/20 blur-[120px]"></div>
+        <div class="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-indigo-900/20 blur-[120px]"></div>
+    </div>
+
+    <div id="secret-trigger" title="Admin Access"></div>
+
+    <main class="relative z-10 flex-grow flex flex-col items-center justify-center p-4 w-full max-w-6xl mx-auto">
+        
+        <!-- Header -->
+        <header class="w-full flex justify-between items-center py-6 mb-8 border-b border-white/10">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center font-bold text-xl shadow-lg">N</div>
+                <h1 class="text-2xl font-bold tracking-tight">Night<span class="text-purple-400">Mode</span></h1>
+            </div>
+            <div id="connection-badge" class="connection-status status-connecting">
+                <span class="w-2 h-2 rounded-full bg-current animate-pulse"></span>
+                <span id="connection-text">Initializing...</span>
+            </div>
+        </header>
+
+        <!-- VIEW: LANDING -->
+        <section id="view-landing" class="w-full max-w-2xl text-center space-y-8 slide-in">
+            <div class="space-y-4">
+                <h2 class="text-5xl md:text-7xl font-bold leading-tight">Truth or <br><span class="gradient-text">Dare</span></h2>
+                <p class="text-gray-400 text-lg max-w-md mx-auto">Play with friends anywhere. No accounts, no downloads. Just share a code.</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-12">
+                <button onclick="app.initHost()" class="group relative px-8 py-6 bg-white text-black rounded-xl font-bold text-lg transition-all hover:scale-105 hover:shadow-[0_0_40px_rgba(255,255,255,0.3)] overflow-hidden">
+                    <div class="absolute inset-0 bg-gradient-to-r from-purple-400 to-indigo-400 opacity-0 group-hover:opacity-20 transition-opacity"></div>
+                    <span class="relative flex items-center justify-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                        Create Game
+                    </span>
+                </button>
+                
+                <button onclick="app.showJoin()" class="group px-8 py-6 glass-panel rounded-xl font-bold text-lg text-white transition-all hover:bg-white/10 border border-white/10 card-hover">
+                    <span class="flex items-center justify-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"></path></svg>
+                        Join Game
+                    </span>
+                </button>
+            </div>
+            
+            <div class="mt-8 p-4 glass-panel rounded-lg border border-white/5">
+                <p class="text-sm text-gray-400 flex items-center justify-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    Powered by WebRTC • Direct peer-to-peer connection
+                </p>
+            </div>
+        </section>
+
+        <!-- VIEW: SETUP (HOST) -->
+        <section id="view-setup" class="hidden w-full max-w-3xl slide-in">
+            <div class="glass-panel rounded-2xl p-8 border border-white/10 shadow-2xl">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                    <h2 class="text-2xl font-bold">Host Game</h2>
+                </div>
+
+                <!-- Peer ID Display -->
+                <div class="mb-8 p-6 peer-id-display rounded-xl text-center space-y-3">
+                    <p class="text-xs text-gray-500 uppercase tracking-widest">Your Game ID</p>
+                    <div class="flex items-center justify-center gap-3">
+                        <span id="host-peer-id" class="text-3xl font-bold text-purple-400">Generating...</span>
+                        <button onclick="app.copyPeerId()" class="p-2 hover:bg-white/10 rounded-lg transition-colors" title="Copy ID">
+                            <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                        </button>
+                    </div>
+                    <p class="text-sm text-gray-500">Share this ID with friends so they can join</p>
+                </div>
+
+                <div class="space-y-6">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Your Name</label>
+                        <input type="text" id="host-name-input" placeholder="Enter your name" class="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-gray-600 focus:border-purple-500 transition-colors">
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="space-y-2">
+                            <div class="flex justify-between items-center">
+                                <label class="block text-sm font-medium text-purple-400">Truths (One per line)</label>
+                                <span class="text-xs text-gray-500" id="truth-count">0 items</span>
+                            </div>
+                            <textarea id="truths-input" rows="6" class="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-3 text-sm text-gray-300 placeholder-gray-600 focus:border-purple-500 transition-colors font-mono" placeholder="What's your biggest fear?&#10;Who was your first crush?&#10;What's the last lie you told?"></textarea>
+                        </div>
+
+                        <div class="space-y-2">
+                            <div class="flex justify-between items-center">
+                                <label class="block text-sm font-medium text-indigo-400">Dares (One per line)</label>
+                                <span class="text-xs text-gray-500" id="dare-count">0 items</span>
+                            </div>
+                            <textarea id="dares-input" rows="6" class="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-3 text-sm text-gray-300 placeholder-gray-600 focus:border-indigo-500 transition-colors font-mono" placeholder="Do 10 pushups.&#10;Text your ex 'I miss you'.&#10;Speak in an accent for 3 turns."></textarea>
+                        </div>
+                    </div>
+
+                    <div class="pt-4">
+                        <button onclick="app.createGame()" class="w-full py-4 bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl font-bold text-lg hover:opacity-90 transition-opacity shadow-lg shadow-purple-900/20">
+                            Create & Open Lobby
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- VIEW: JOIN -->
+        <section id="view-join" class="hidden w-full max-w-md slide-in">
+            <button onclick="app.showLanding()" class="mb-6 text-gray-400 hover:text-white flex items-center gap-2 transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+                Back
+            </button>
+
+            <div class="glass-panel rounded-2xl p-8 text-center space-y-6">
+                <div class="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg class="w-8 h-8 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"></path></svg>
+                </div>
+                <h2 class="text-2xl font-bold">Join Session</h2>
+                <p class="text-gray-400 text-sm">Enter the Game ID from your friend's screen.</p>
+
+                <div>
+                    <input type="text" id="join-peer-id" placeholder="Enter Game ID (e.g., abc-123)" class="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-4 text-center text-xl font-mono tracking-widest text-white placeholder-gray-600 focus:border-purple-500 transition-all uppercase">
+                </div>
+
+                <div>
+                    <label class="block text-left text-sm font-medium text-gray-300 mb-2">Your Name</label>
+                    <input type="text" id="join-name-input" placeholder="Enter your name" class="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-gray-600 focus:border-purple-500 transition-colors">
+                </div>
+
+                <button onclick="app.joinGame()" class="w-full py-4 bg-white text-black rounded-xl font-bold hover:bg-gray-200 transition-colors">
+                    Connect to Host
+                </button>
+                
+                <p id="join-error" class="text-red-500 text-sm hidden"></p>
+                <p class="text-xs text-gray-600 mt-4">Connection may take 5-10 seconds to establish...</p>
+            </div>
+        </section>
+
+        <!-- VIEW: LOBBY -->
+        <section id="view-lobby" class="hidden w-full max-w-4xl slide-in">
+            <div class="flex justify-between items-end mb-8 border-b border-white/10 pb-4">
+                <div>
+                    <h2 class="text-3xl font-bold">Lobby</h2>
+                    <p class="text-gray-400" id="lobby-status">Waiting for players...</p>
+                </div>
+                <div class="text-right">
+                    <p class="text-xs text-gray-500 uppercase tracking-widest mb-1">Players</p>
+                    <div class="flex items-center gap-2 bg-white/5 px-4 py-2 rounded-lg border border-white/10">
+                        <span id="player-count" class="text-xl font-bold text-purple-400">1/4</span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="players-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-12">
+                <!-- Dynamic player cards -->
+            </div>
+
+            <div class="flex justify-center gap-4">
+                <button id="start-game-btn" onclick="app.launchGame()" class="hidden px-12 py-4 bg-gradient-to-r from-green-500 to-emerald-600 rounded-full font-bold text-xl shadow-lg shadow-green-900/30 hover:scale-105 transition-transform">
+                    START GAME
+                </button>
+                <p id="waiting-text" class="text-gray-500 animate-pulse">Waiting for players to join...</p>
+            </div>
+
+            <div id="host-controls" class="hidden mt-8 text-center">
+                <button onclick="app.disconnect()" class="text-sm text-red-400 hover:text-red-300 underline">Disconnect All & Reset</button>
+            </div>
+        </section>
+
+        <!-- VIEW: GAME BOARD -->
+        <section id="view-game" class="hidden w-full max-w-5xl slide-in flex flex-col h-[70vh]">
+            <!-- Top Bar -->
+            <div class="flex justify-between items-center mb-6 bg-black/40 p-4 rounded-xl border border-white/5">
+                <div class="flex items-center gap-4">
+                    <div class="w-10 h-10 rounded-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center font-bold border border-white/10" id="current-player-avatar">?</div>
+                    <div>
+                        <p class="text-xs text-gray-500 uppercase">Current Turn</p>
+                        <h3 id="current-player-name" class="text-xl font-bold text-white">Waiting...</h3>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <div class="px-3 py-1 rounded bg-purple-500/20 text-purple-300 text-xs font-bold border border-purple-500/30" id="truth-count-badge">Truths: 0</div>
+                    <div class="px-3 py-1 rounded bg-indigo-500/20 text-indigo-300 text-xs font-bold border border-indigo-500/30" id="dare-count-badge">Dares: 0</div>
+                </div>
+            </div>
+
+            <!-- Game Area -->
+            <div class="flex-grow relative flex items-center justify-center">
+                
+                <!-- Idle State -->
+                <div id="game-idle" class="text-center space-y-8 w-full">
+                    <h2 class="text-4xl font-bold text-gray-300">It's <span id="turn-name-display" class="text-white font-bold"></span>'s turn</h2>
+                    <p class="text-gray-500 text-sm" id="turn-instruction">Waiting for them to choose...</p>
+                    
+                    <!-- Host Controls (Only visible to host and current player) -->
+                    <div id="choice-buttons" class="hidden flex gap-6 justify-center mt-8">
+                        <button onclick="game.selectTruth()" class="group relative w-40 h-40 rounded-2xl bg-gradient-to-br from-purple-900 to-purple-700 border border-purple-500/50 flex flex-col items-center justify-center gap-2 hover:scale-110 transition-all duration-300 shadow-[0_0_30px_rgba(147,51,234,0.3)]">
+                            <span class="text-3xl">🤫</span>
+                            <span class="font-bold text-lg">TRUTH</span>
+                            <div class="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl"></div>
+                        </button>
+
+                        <button onclick="game.selectDare()" class="group relative w-40 h-40 rounded-2xl bg-gradient-to-br from-indigo-900 to-indigo-700 border border-indigo-500/50 flex flex-col items-center justify-center gap-2 hover:scale-110 transition-all duration-300 shadow-[0_0_30px_rgba(79,70,229,0.3)]">
+                            <span class="text-3xl">🔥</span>
+                            <span class="font-bold text-lg">DARE</span>
+                            <div class="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl"></div>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Active Card State -->
+                <div id="game-active" class="hidden w-full max-w-lg">
+                    <div class="glass-panel rounded-3xl p-1 border border-white/20 shadow-2xl transform transition-all duration-500" id="active-card">
+                        <div class="bg-black/80 rounded-[20px] p-8 md:p-12 text-center min-h-[300px] flex flex-col items-center justify-center relative overflow-hidden">
+                            <div id="card-glow" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 bg-purple-500/20 blur-[80px] rounded-full"></div>
+                            
+                            <div class="relative z-10 space-y-6">
+                                <div id="card-type-icon" class="text-5xl mb-4">🤫</div>
+                                <h3 id="card-type-label" class="text-sm font-bold tracking-[0.3em] uppercase text-purple-400">Truth</h3>
+                                <p id="card-content" class="text-2xl md:text-3xl font-medium leading-relaxed text-white">Loading...</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-8 flex justify-center">
+                        <button id="done-btn" onclick="game.completeTurn()" class="hidden px-8 py-3 bg-white text-black rounded-full font-bold hover:scale-105 transition-transform">
+                            Done / Next Player
+                        </button>
+                        <p id="waiting-done" class="text-gray-500 hidden">Waiting for player to finish...</p>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Admin Panel -->
+    <div id="admin-panel" class="fixed inset-0 z-50 bg-black/95 backdrop-blur-xl hidden flex-col items-center justify-center p-4">
+        <div class="w-full max-w-4xl bg-[#111] border border-red-500/30 rounded-2xl p-8 shadow-2xl relative">
+            <button onclick="app.toggleAdmin()" class="absolute top-4 right-4 text-gray-500 hover:text-white">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+            
+            <div class="flex items-center gap-3 mb-8 border-b border-white/10 pb-4">
+                <div class="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                <h2 class="text-2xl font-bold text-red-500 tracking-widest">ADMIN_OVERRIDE</h2>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div>
+                    <h3 class="text-sm font-bold text-gray-400 mb-2 uppercase">Network Log</h3>
+                    <div id="admin-log" class="bg-black p-4 rounded-lg h-48 overflow-y-auto font-mono text-xs text-green-400 space-y-1 border border-white/10">
+                        <div>> System initialized...</div>
+                    </div>
+                    <div class="mt-4 flex gap-2">
+                        <button onclick="app.testConnection()" class="px-4 py-2 bg-gray-800 rounded text-xs hover:bg-gray-700">Test Connection</button>
+                        <button onclick="app.forceSync()" class="px-4 py-2 bg-gray-800 rounded text-xs hover:bg-gray-700">Force Sync</button>
+                    </div>
+                </div>
+                
+                <div class="space-y-4">
+                    <h3 class="text-sm font-bold text-gray-400 mb-2 uppercase">Game Controls</h3>
+                    <button onclick="app.adminAddTruth()" class="w-full py-2 bg-purple-900/50 border border-purple-500/50 text-purple-300 rounded hover:bg-purple-800 transition-colors text-sm">
+                        + Inject Random Truth
+                    </button>
+                    <button onclick="app.adminAddDare()" class="w-full py-2 bg-indigo-900/50 border border-indigo-500/50 text-indigo-300 rounded hover:bg-indigo-800 transition-colors text-sm">
+                        + Inject Random Dare
+                    </button>
+                    <button onclick="app.adminSkipTurn()" class="w-full py-2 bg-gray-800 border border-gray-600 text-gray-300 rounded hover:bg-gray-700 transition-colors text-sm">
+                        >> Skip Current Turn
+                    </button>
+                    <button onclick="app.adminReset()" class="w-full py-3 bg-red-900/20 border border-red-500/50 text-red-500 font-bold rounded hover:bg-red-900/40 transition-colors mt-4">
+                        DESTROY SESSION
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Application State & Networking ---
+        const app = {
+            state: {
+                view: 'landing',
+                isHost: false,
+                myName: '',
+                players: [], // { id, name, isHost, peerId, connection }
+                truths: [],
+                dares: [],
+                currentPlayerIndex: 0,
+                peer: null,
+                connections: [], // DataConnection objects
+                gameStarted: false
+            },
+
+            init() {
+                // Input listeners
+                document.getElementById('truths-input').addEventListener('input', (e) => {
+                    const count = e.target.value.split('\n').filter(line => line.trim() !== '').length;
+                    document.getElementById('truth-count').innerText = `${count} items`;
+                });
+                document.getElementById('dares-input').addEventListener('input', (e) => {
+                    const count = e.target.value.split('\n').filter(line => line.trim() !== '').length;
+                    document.getElementById('dare-count').innerText = `${count} items`;
+                });
+
+                // Secret admin trigger (click bottom right 3 times fast)
+                let clicks = 0, lastClick = 0;
+                document.getElementById('secret-trigger').addEventListener('click', () => {
+                    const now = Date.now();
+                    clicks = (now - lastClick < 1000) ? clicks + 1 : 1;
+                    lastClick = now;
+                    if (clicks >= 3) this.toggleAdmin();
+                });
+            },
+
+            log(msg) {
+                const log = document.getElementById('admin-log');
+                const entry = document.createElement('div');
+                entry.innerText = `> [${new Date().toLocaleTimeString()}] ${msg}`;
+                log.appendChild(entry);
+                log.scrollTop = log.scrollHeight;
+                console.log(msg);
+            },
+
+            updateConnectionStatus(status, text) {
+                const badge = document.getElementById('connection-badge');
+                const label = document.getElementById('connection-text');
+                badge.className = `connection-status status-${status}`;
+                label.innerText = text;
+            },
+
+            // --- Navigation ---
+            showLanding() { this.switchView('view-landing'); },
+            showJoin() { this.switchView('view-join'); },
+            
+            switchView(viewId) {
+                document.querySelectorAll('main > section').forEach(el => el.classList.add('hidden'));
+                document.getElementById(viewId).classList.remove('hidden');
+                document.getElementById(viewId).classList.remove('slide-in');
+                void document.getElementById(viewId).offsetWidth;
+                document.getElementById(viewId).classList.add('slide-in');
+            },
+
+            // --- Host Flow ---
+            initHost() {
+                this.switchView('view-setup');
+                this.updateConnectionStatus('connecting', 'Initializing Peer...');
+                
+                // Create Peer with random ID
+                this.state.peer = new Peer({
+                    config: {
+                        iceServers: [
+                            { urls: 'stun:stun.l.google.com:19302' },
+                            { urls: 'stun:stun1.l.google.com:19302' }
+                        ]
+                    }
+                });
+
+                this.state.peer.on('open', (id) => {
+                    this.log(`Host peer created: ${id}`);
+                    document.getElementById('host-peer-id').innerText = id;
+                    this.updateConnectionStatus('host', 'HOST MODE');
+                    
+                    // Listen for connections
+                    this.state.peer.on('connection', (conn) => {
+                        this.handleIncomingConnection(conn);
+                    });
+                });
+
+                this.state.peer.on('error', (err) => {
+                    this.log(`Peer error: ${err.type}`);
+                    this.updateConnectionStatus('error', 'Connection Error');
+                    alert('Error creating game. Try refreshing.');
+                });
+            },
+
+            handleIncomingConnection(conn) {
+                this.log(`Incoming connection from: ${conn.peer}`);
+                
+                conn.on('open', () => {
+                    this.log(`Connection opened with ${conn.peer}`);
+                    this.state.connections.push(conn);
+                    
+                    // Listen for data
+                    conn.on('data', (data) => {
+                        this.handleData(conn, data);
+                    });
+
+                    // Handle close
+                    conn.on('close', () => {
+                        this.log(`Connection closed: ${conn.peer}`);
+                        this.removePlayer(conn.peer);
+                    });
+                });
+            },
+
+            handleData(conn, data) {
+                this.log(`Received: ${JSON.stringify(data)}`);
+                
+                switch(data.type) {
+                    case 'JOIN':
+                        // New player wants to join
+                        if (this.state.players.length >= 4) {
+                            conn.send({ type: 'ERROR', message: 'Game full' });
+                            return;
+                        }
+                        const newPlayer = {
+                            id: this.state.players.length + 1,
+                            name: data.name,
+                            isHost: false,
+                            peerId: conn.peer
+                        };
+                        this.state.players.push(newPlayer);
+                        
+                        // Send current state to new player
+                        conn.send({
+                            type: 'INIT',
+                            playerId: newPlayer.id,
+                            players: this.state.players.map(p => ({ id: p.id, name: p.name, isHost: p.isHost })),
+                            gameStarted: this.state.gameStarted
+                        });
+                        
+                        // Broadcast to all other players
+                        this.broadcast({
+                            type: 'PLAYER_JOINED',
+                            player: { id: newPlayer.id, name: newPlayer.name, isHost: false }
+                        }, conn.peer);
+                        
+                        this.updateLobby();
+                        break;
+                        
+                    case 'ACTION':
+                        // Player clicked truth/dare
+                        if (data.action === 'truth') game.selectTruth();
+                        if (data.action === 'dare') game.selectDare();
+                        if (data.action === 'done') game.completeTurn();
+                        break;
+                }
+            },
+
+            broadcast(data, excludePeerId = null) {
+                this.state.connections.forEach(conn => {
+                    if (conn.peer !== excludePeerId && conn.open) {
+                        conn.send(data);
+                    }
+                });
+            },
+
+            removePlayer(peerId) {
+                const idx = this.state.players.findIndex(p => p.peerId === peerId);
+                if (idx > -1) {
+                    const name = this.state.players[idx].name;
+                    this.state.players.splice(idx, 1);
+                    this.state.connections = this.state.connections.filter(c => c.peer !== peerId);
+                    this.broadcast({ type: 'PLAYER_LEFT', name: name });
+                    this.updateLobby();
+                    this.log(`Removed player: ${name}`);
+                }
+            },
+
+            createGame() {
+                const name = document.getElementById('host-name-input').value || 'Host';
+                const truthsRaw = document.getElementById('truths-input').value;
+                const daresRaw = document.getElementById('dares-input').value;
+
+                if (!truthsRaw.trim() || !daresRaw.trim()) {
+                    alert("Please enter at least one Truth and one Dare.");
+                    return;
+                }
+
+                this.state.myName = name;
+                this.state.truths = truthsRaw.split('\n').filter(t => t.trim() !== '');
+                this.state.dares = daresRaw.split('\n').filter(d => d.trim() !== '');
+                this.state.players = [{ id: 1, name: name, isHost: true, peerId: this.state.peer.id }];
+                this.state.isHost = true;
+
+                this.log('Game created with ' + this.state.truths.length + ' truths, ' + this.state.dares.length + ' dares');
+                this.switchView('view-lobby');
+                this.updateLobby();
+            },
+
+            copyPeerId() {
+                const id = document.getElementById('host-peer-id').innerText;
+                navigator.clipboard.writeText(id);
+                const btn = event.currentTarget;
+                btn.innerHTML = `<svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
+                setTimeout(() => {
+                    btn.innerHTML = `<svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>`;
+                }, 2000);
+            },
+
+            updateLobby() {
+                document.getElementById('player-count').innerText = `${this.state.players.length}/4`;
+                document.getElementById('lobby-status').innerText = this.state.isHost ? 
+                    `Share your Game ID: ${this.state.peer.id}` : 'Connected to host';
+                
+                const grid = document.getElementById('players-grid');
+                grid.innerHTML = '';
+                
+                this.state.players.forEach((player, idx) => {
+                    const div = document.createElement('div');
+                    div.className = `player-card glass-panel p-6 rounded-xl border-l-4 ${player.isHost ? 'border-purple-500 bg-purple-500/10' : 'border-green-500'} relative overflow-hidden`;
+                    div.innerHTML = `
+                        <div class="absolute top-0 right-0 p-2 opacity-20">
+                            <svg class="w-12 h-12" fill="currentColor" viewBox="0 0 20 20"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z"></path></svg>
+                        </div>
+                        <p class="text-xs ${player.isHost ? 'text-purple-400' : 'text-green-400'} font-bold uppercase mb-2">${player.isHost ? 'Host' : 'Player ' + (idx + 1)}</p>
+                        <h3 class="text-xl font-bold truncate">${player.name}</h3>
+                        ${player.isHost ? '<span class="text-xs text-gray-500">You</span>' : ''}
+                    `;
+                    grid.appendChild(div);
+                });
+
+                // Fill empty slots
+                for (let i = this.state.players.length; i < 4; i++) {
+                    const div = document.createElement('div');
+                    div.className = 'player-card glass-panel p-6 rounded-xl border-l-4 border-gray-700 opacity-50';
+                    div.innerHTML = `
+                        <p class="text-xs text-gray-500 font-bold uppercase mb-2">Slot ${i + 1}</p>
+                        <h3 class="text-xl font-bold text-gray-500">Empty</h3>
+                    `;
+                    grid.appendChild(div);
+                }
+
+                if (this.state.isHost) {
+                    document.getElementById('start-game-btn').classList.toggle('hidden', this.state.players.length < 1);
+                    document.getElementById('waiting-text').classList.toggle('hidden', this.state.players.length >= 1);
+                    document.getElementById('host-controls').classList.remove('hidden');
+                }
+            },
+
+            launchGame() {
+                this.state.gameStarted = true;
+                this.broadcast({ type: 'GAME_START', truths: this.state.truths, dares: this.state.dares });
+                this.switchView('view-game');
+                game.init();
+            },
+
+            // --- Join Flow ---
+            joinGame() {
+                const peerId = document.getElementById('join-peer-id').value.trim().toLowerCase();
+                const name = document.getElementById('join-name-input').value || 'Guest';
+                
+                if (!peerId) {
+                    document.getElementById('join-error').innerText = 'Please enter a Game ID';
+                    document.getElementById('join-error').classList.remove('hidden');
+                    return;
+                }
+
+                this.updateConnectionStatus('connecting', 'Connecting...');
+                document.getElementById('join-error').classList.add('hidden');
+
+                // Create our own peer
+                this.state.peer = new Peer({
+                    config: {
+                        iceServers: [
+                            { urls: 'stun:stun.l.google.com:19302' },
+                            { urls: 'stun:stun1.l.google.com:19302' }
+                        ]
+                    }
+                });
+
+                this.state.peer.on('open', (myId) => {
+                    this.log(`My peer ID: ${myId}`);
+                    
+                    // Connect to host
+                    const conn = this.state.peer.connect(peerId, {
+                        reliable: true,
+                        serialization: 'json'
+                    });
+
+                    conn.on('open', () => {
+                        this.log('Connected to host!');
+                        this.state.connections.push(conn);
+                        this.state.myName = name;
+                        this.state.isHost = false;
+                        
+                        // Send join request
+                        conn.send({ type: 'JOIN', name: name });
+                        
+                        // Listen for host messages
+                        conn.on('data', (data) => this.handleHostData(data));
+                        
+                        this.updateConnectionStatus('connected', 'CONNECTED');
+                        this.switchView('view-lobby');
+                    });
+
+                    conn.on('error', (err) => {
+                        this.log(`Connection error: ${err}`);
+                        document.getElementById('join-error').innerText = 'Failed to connect. Check the Game ID.';
+                        document.getElementById('join-error').classList.remove('hidden');
+                        this.updateConnectionStatus('error', 'Failed');
+                    });
+                });
+            },
+
+            handleHostData(data) {
+                this.log(`From host: ${JSON.stringify(data)}`);
+                
+                switch(data.type) {
+                    case 'INIT':
+                        // Initial state
+                        this.state.players = data.players.map(p => ({
+                            ...p,
+                            peerId: p.isHost ? this.state.connections[0].peer : null
+                        }));
+                        this.updateLobby();
+                        break;
+                        
+                    case 'PLAYER_JOINED':
+                        this.state.players.push(data.player);
+                        this.updateLobby();
+                        break;
+                        
+                    case 'PLAYER_LEFT':
+                        this.state.players = this.state.players.filter(p => p.name !== data.name);
+                        this.updateLobby();
+                        break;
+                        
+                    case 'GAME_START':
+                        this.state.truths = data.truths;
+                        this.state.dares = data.dares;
+                        this.state.gameStarted = true;
+                        this.switchView('view-game');
+                        game.init();
+                        break;
+                        
+                    case 'GAME_STATE':
+                        // Update game state
+                        this.state.currentPlayerIndex = data.currentPlayer;
+                        game.renderTurn();
+                        if (data.card) {
+                            game.showCard(data.cardType, data.card, data.color);
+                        }
+                        break;
+                        
+                    case 'ERROR':
+                        alert(data.message);
+                        break;
+                }
+            },
+
+            disconnect() {
+                if (confirm('Disconnect everyone and reset?')) {
+                    this.broadcast({ type: 'HOST_DISCONNECT' });
+                    location.reload();
+                }
+            },
+
+            // --- Admin ---
+            toggleAdmin() {
+                const panel = document.getElementById('admin-panel');
+                panel.classList.toggle('hidden');
+            },
+
+            testConnection() {
+                if (this.state.connections.length > 0) {
+                    this.broadcast({ type: 'PING', time: Date.now() });
+                    this.log('Sent ping to all peers');
+                } else {
+                    this.log('No active connections');
+                }
+            },
+
+            forceSync() {
+                if (this.state.isHost) {
+                    this.broadcast({
+                        type: 'GAME_STATE',
+                        currentPlayer: this.state.currentPlayerIndex,
+                        players: this.state.players
+                    });
+                    this.log('Forced sync broadcast');
+                }
+            },
+
+            adminAddTruth() {
+                const t = "Admin injected: What's your wifi password?";
+                this.state.truths.push(t);
+                this.log('Injected truth: ' + t);
+            },
+
+            adminAddDare() {
+                const d = "Admin injected: Switch shirts with the player to your left.";
+                this.state.dares.push(d);
+                this.log('Injected dare: ' + d);
+            },
+
+            adminSkipTurn() {
+                game.completeTurn();
+            },
+
+            adminReset() {
+                location.reload();
+            }
+        };
+
+        // --- Game Logic ---
+        const game = {
+            init() {
+                this.updateStats();
+                this.renderTurn();
+            },
+
+            updateStats() {
+                document.getElementById('truth-count-badge').innerText = `Truths: ${app.state.truths.length}`;
+                document.getElementById('dare-count-badge').innerText = `Dares: ${app.state.dares.length}`;
+            },
+
+            renderTurn() {
+                const player = app.state.players[app.state.currentPlayerIndex];
+                if (!player) return;
+
+                document.getElementById('current-player-name').innerText = player.name;
+                document.getElementById('turn-name-display').innerText = player.name;
+                document.getElementById('current-player-avatar').innerText = player.name.charAt(0).toUpperCase();
+
+                // Check if it's my turn
+                const isMyTurn = (app.state.isHost && player.isHost) || 
+                                (!app.state.isHost && player.name === app.state.myName);
+                
+                const isHost = app.state.isHost;
+
+                // Reset view
+                document.getElementById('game-idle').classList.remove('hidden');
+                document.getElementById('game-active').classList.add('hidden');
+
+                if (isMyTurn) {
+                    document.getElementById('turn-instruction').innerText = 'Choose Truth or Dare';
+                    document.getElementById('choice-buttons').classList.remove('hidden');
+                } else {
+                    document.getElementById('turn-instruction').innerText = `Waiting for ${player.name}...`;
+                    document.getElementById('choice-buttons').classList.add('hidden');
+                }
+
+                // Done button visibility
+                const doneBtn = document.getElementById('done-btn');
+                const waitingDone = document.getElementById('waiting-done');
+                
+                if (isHost) {
+                    doneBtn.classList.remove('hidden');
+                    waitingDone.classList.add('hidden');
+                } else {
+                    doneBtn.classList.add('hidden');
+                    waitingDone.classList.remove('hidden');
+                }
+            },
+
+            selectTruth() {
+                if (app.state.truths.length === 0) {
+                    alert("No truths left!");
+                    return;
+                }
+                const idx = Math.floor(Math.random() * app.state.truths.length);
+                const content = app.state.truths[idx];
+                
+                if (app.state.isHost) {
+                    this.showCard('Truth', content, 'purple');
+                    app.broadcast({
+                        type: 'GAME_STATE',
+                        currentPlayer: app.state.currentPlayerIndex,
+                        cardType: 'Truth',
+                        card: content,
+                        color: 'purple'
+                    });
+                } else {
+                    // Tell host to pick truth
+                    app.state.connections[0].send({ type: 'ACTION', action: 'truth' });
+                }
+            },
+
+            selectDare() {
+                if (app.state.dares.length === 0) {
+                    alert("No dares left!");
+                    return;
+                }
+                const idx = Math.floor(Math.random() * app.state.dares.length);
+                const content = app.state.dares[idx];
+                
+                if (app.state.isHost) {
+                    this.showCard('Dare', content, 'indigo');
+                    app.broadcast({
+                        type: 'GAME_STATE',
+                        currentPlayer: app.state.currentPlayerIndex,
+                        cardType: 'Dare',
+                        card: content,
+                        color: 'indigo'
+                    });
+                } else {
+                    app.state.connections[0].send({ type: 'ACTION', action: 'dare' });
+                }
+            },
+
+            showCard(type, content, color) {
+                document.getElementById('game-idle').classList.add('hidden');
+                const activeCard = document.getElementById('game-active');
+                activeCard.classList.remove('hidden');
+                
+                const cardInner = document.getElementById('active-card');
+                cardInner.classList.remove('slide-in');
+                void cardInner.offsetWidth;
+                cardInner.classList.add('slide-in');
+
+                document.getElementById('card-type-label').innerText = type;
+                document.getElementById('card-type-label').className = `text-sm font-bold tracking-[0.3em] uppercase text-${color}-400`;
+                document.getElementById('card-content').innerText = content;
+                document.getElementById('card-type-icon').innerText = type === 'Truth' ? '🤫' : '🔥';
+                document.getElementById('card-glow').className = `absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 bg-${color}-500/20 blur-[80px] rounded-full`;
+
+                // Only host can click done
+                const doneBtn = document.getElementById('done-btn');
+                if (app.state.isHost) {
+                    doneBtn.classList.remove('hidden');
+                    document.getElementById('waiting-done').classList.add('hidden');
+                } else {
+                    doneBtn.classList.add('hidden');
+                    document.getElementById('waiting-done').classList.remove('hidden');
+                }
+            },
+
+            completeTurn() {
+                if (!app.state.isHost) {
+                    // Tell host we're done
+                    app.state.connections[0].send({ type: 'ACTION', action: 'done' });
+                    return;
+                }
+
+                app.state.currentPlayerIndex = (app.state.currentPlayerIndex + 1) % app.state.players.length;
+                
+                // Broadcast new state
+                app.broadcast({
+                    type: 'GAME_STATE',
+                    currentPlayer: app.state.currentPlayerIndex,
+                    card: null
+                });
+                
+                this.renderTurn();
+                this.updateStats();
+            }
+        };
+
+        // Start
+        app.init();
+    </script>
+</body>
+</html>
